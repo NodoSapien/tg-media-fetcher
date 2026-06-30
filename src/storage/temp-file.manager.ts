@@ -26,6 +26,12 @@ export async function cleanup(dir: string): Promise<void> {
   }
 }
 
+// createJobDir() nombra cada subdirectorio con randomUUID(). Solo se purgan
+// entradas que matchean ese patrón, para que apuntar DOWNLOAD_TMP_DIR a una
+// carpeta no dedicada (compartida con otros archivos) no borre nada ajeno.
+const JOB_DIR_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Elimina restos de jobs de ejecuciones previas (recuperación tras crash). */
 export async function purgeStale(): Promise<void> {
   let entries: string[];
@@ -34,7 +40,6 @@ export async function purgeStale(): Promise<void> {
   } catch {
     return; // el dir base aún no existe; nada que purgar
   }
-  await Promise.all(
-    entries.map((entry) => cleanup(path.join(BASE_DIR, entry))),
-  );
+  const jobDirs = entries.filter((entry) => JOB_DIR_PATTERN.test(entry));
+  await Promise.all(jobDirs.map((entry) => cleanup(path.join(BASE_DIR, entry))));
 }
