@@ -21,7 +21,17 @@ const envSchema = z.object({
   FFMPEG_PATH: z.string().min(1).default("ffmpeg"),
 });
 
-const parsed = envSchema.safeParse(process.env);
+// Trata variables vacías ("FOO=") como ausentes: así los campos opcionales o
+// con default no fallan la validación cuando el .env las deja en blanco
+// (p. ej. DOWNLOAD_TMP_DIR=), y los obligatorios reportan "Required" claro.
+const rawEnv = Object.fromEntries(
+  Object.entries(process.env).map(([key, value]) => [
+    key,
+    typeof value === "string" && value.trim() === "" ? undefined : value,
+  ]),
+);
+
+const parsed = envSchema.safeParse(rawEnv);
 
 if (!parsed.success) {
   console.error("❌ Variables de entorno inválidas:");
