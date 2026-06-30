@@ -6,7 +6,7 @@ import { YtDlpError } from "../../core/downloader/ytdlp.service.js";
 import { DownloadQueue } from "../../core/queue/download-queue.js";
 import * as tempFiles from "../../storage/temp-file.manager.js";
 
-const queue = new DownloadQueue();
+export const queue = new DownloadQueue();
 
 // Límite del Local Bot API Server (~2 GB).
 const MAX_UPLOAD_BYTES = 2000 * 1024 * 1024;
@@ -15,7 +15,7 @@ const URL_REGEX = /(https?:\/\/[^\s]+)/i;
 
 const AUDIO_EXTS = new Set([".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".flac"]);
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
-const VIDEO_EXTS = new Set([".mp4", ".mov", ".m4v"]);
+const VIDEO_EXTS = new Set([".mp4", ".mov", ".m4v", ".mkv", ".webm"]);
 
 const HELP_TEXT =
   "Envíame una URL (YouTube, Twitter/X, Instagram, etc.) y te devuelvo el media en su mejor calidad.";
