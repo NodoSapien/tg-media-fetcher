@@ -88,6 +88,15 @@ export function download(
 ): Promise<DownloadResult> {
   const { outDir, signal } = options;
 
+  // Solo pasar --ffmpeg-location si FFMPEG_PATH es una ruta real. yt-dlp trata
+  // ese parámetro como una ubicación del filesystem, no busca en el PATH; si le
+  // pasamos un nombre suelto (p. ej. "ffmpeg") no lo encuentra y omite el merge.
+  // Cuando es solo un nombre, dejamos que yt-dlp lo resuelva por el PATH.
+  const ffmpegIsPath =
+    path.isAbsolute(env.FFMPEG_PATH) ||
+    env.FFMPEG_PATH.includes("/") ||
+    env.FFMPEG_PATH.includes("\\");
+
   const args = [
     "-f",
     "bv*+ba/b",
@@ -95,8 +104,7 @@ export function download(
     "mp4",
     "--no-playlist",
     "--no-progress",
-    "--ffmpeg-location",
-    env.FFMPEG_PATH,
+    ...(ffmpegIsPath ? ["--ffmpeg-location", env.FFMPEG_PATH] : []),
     "-o",
     path.join(outDir, "%(id)s.%(ext)s"),
     url,
