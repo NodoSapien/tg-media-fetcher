@@ -1,0 +1,17 @@
+services:
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+    volumes:
+      # Working dir del server (sesiones/temporales propios del server).
+      # Named volume -> portable en Windows (Docker Desktop) y Linux.
+      # No se comparte con el bot: el bot sube el archivo por streaming (InputFile).
+      - telegram-bot-api-data:/var/lib/telegram-bot-api
+    ports:
+      - "127.0.0.1:8081:8081" # solo accesible desde localhost
+
+volumes:
+  telegram-bot-api-data:
