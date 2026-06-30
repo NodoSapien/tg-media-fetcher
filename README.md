@@ -8,6 +8,9 @@ usando un **Local Bot API Server** para soportar archivos de hasta 2 GB.
 > ⚠️ Este repositorio es para uso personal. El acceso está restringido por `user_id` a
 > nivel de aplicación.
 
+> 📲 ¿Primera vez configurando el bot? Ve directo a la
+> [Guía de usuario final](GUIA_USUARIO.md) — instrucciones paso a paso desde cero.
+
 ---
 
 ## 🏗️ Arquitectura
@@ -60,6 +63,7 @@ tg-media-fetcher/
 ├── package.json
 ├── tsconfig.json
 ├── README.md
+├── GUIA_USUARIO.md                # guía paso a paso para el usuario final
 └── src/
     ├── index.ts                       # entry point, arranca el bot
     ├── config/
@@ -124,6 +128,9 @@ pnpm build && pnpm start
 
 Envía una URL al bot desde la cuenta autorizada y responderá con el estado:
 `⏳ en cola → ⬇️ descargando → 📤 subiendo → ✅ listo`.
+
+> Para el paso a paso completo (conseguir credenciales, troubleshooting, etc.) ver la
+> [Guía de usuario final](GUIA_USUARIO.md).
 
 ---
 
