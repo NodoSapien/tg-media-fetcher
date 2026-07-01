@@ -58,6 +58,7 @@ function buildStartText(): string {
     "• /help — muestra esta ayuda.",
     "",
     "📝 Cada archivo llega con su título (enlazado a la URL), duración y plataforma.",
+    "⬇️ Mientras descarga verás el % de avance, con un botón ❌ Cancelar por si te arrepientes.",
   ];
   if (env.QUALITY_MENU) {
     lines.push(
@@ -105,9 +106,21 @@ function buildMenu(token: string): InlineKeyboard {
   return kb;
 }
 
+// Un AbortController por job, vivo mientras está en cola/analizando/descargando.
+// Se borra en el `finally` de runJob, así que no necesita cap ni TTL (a
+// diferencia de `pending`, que puede quedar huérfano si el usuario nunca elige).
+const activeJobs = new Map<string, AbortController>();
+
+function cancelKeyboard(jobId: string): InlineKeyboard {
+  return new InlineKeyboard().text("❌ Cancelar", `cancel:${jobId}`);
+}
+
 /** Sondea metadata sin bloquear el flujo: si falla, devuelve undefined. */
-async function safeProbe(url: string): Promise<ytdlp.MediaMetadata | undefined> {
-  return ytdlp.probe(url).catch(() => undefined);
+async function safeProbe(
+  url: string,
+  signal?: AbortSignal,
+): Promise<ytdlp.MediaMetadata | undefined> {
+  return ytdlp.probe(url, { signal }).catch(() => undefined);
 }
 
 function htmlEscape(text: string): string {
@@ -221,15 +234,27 @@ async function sendByType(
   }
 }
 
+const PROGRESS_MIN_INTERVAL_MS = 3000;
+const PROGRESS_MIN_DELTA = 5;
+
 function runJob(
   ctx: Context,
   chatId: number,
   statusMsgId: number,
   url: string,
   choice: Choice,
+  jobId: string,
+  controller: AbortController,
   metadata?: ytdlp.MediaMetadata,
 ) {
   return async (): Promise<void> => {
+    const { signal } = controller;
+    if (signal.aborted) {
+      await safeEdit(ctx, chatId, statusMsgId, "❌ Cancelado.");
+      activeJobs.delete(jobId);
+      return;
+    }
+
     const jobDir = await tempFiles.createJobDir();
     try {
       // Si no llega metadata (camino sin menú), la sondeamos ahora (best-effort)
@@ -237,13 +262,29 @@ function runJob(
       let meta = metadata;
       if (meta === undefined) {
         await safeEdit(ctx, chatId, statusMsgId, "🔎 Analizando…");
-        meta = await safeProbe(url);
+        meta = await safeProbe(url, signal);
       }
 
       await safeEdit(ctx, chatId, statusMsgId, "⬇️ Descargando…");
+      let lastPercent = -1;
+      let lastEditAt = 0;
       const { filePath } = await ytdlp.download(url, {
         outDir: jobDir,
         profile: choice.profile,
+        signal,
+        onProgress: (percent) => {
+          const now = Date.now();
+          if (
+            percent === lastPercent ||
+            (percent - lastPercent < PROGRESS_MIN_DELTA &&
+              now - lastEditAt < PROGRESS_MIN_INTERVAL_MS)
+          ) {
+            return;
+          }
+          lastPercent = percent;
+          lastEditAt = now;
+          void safeEdit(ctx, chatId, statusMsgId, `⬇️ Descargando… ${percent}%`);
+        },
       });
 
       const { size } = await fs.stat(filePath);
@@ -257,12 +298,18 @@ function runJob(
         return;
       }
 
-      await safeEdit(
-        ctx,
-        chatId,
-        statusMsgId,
-        choice.asDocument ? "📤 Subiendo (original)…" : "📤 Subiendo…",
-      );
+      // A partir de aquí ya no se puede cancelar (el archivo ya está
+      // descargado): se retira el botón para no prometer algo que no hace nada.
+      try {
+        await ctx.api.editMessageText(
+          chatId,
+          statusMsgId,
+          choice.asDocument ? "📤 Subiendo (original)…" : "📤 Subiendo…",
+          { reply_markup: { inline_keyboard: [] } },
+        );
+      } catch {
+        /* no-op */
+      }
       await sendByType(ctx, chatId, filePath, {
         asDocument: choice.asDocument,
         caption: buildCaption(meta, url),
@@ -270,15 +317,18 @@ function runJob(
 
       await safeEdit(ctx, chatId, statusMsgId, "✅ Listo");
     } catch (error) {
-      const message =
-        error instanceof YtDlpError
+      const isAbort = error instanceof Error && error.name === "AbortError";
+      const message = isAbort
+        ? "❌ Cancelado."
+        : error instanceof YtDlpError
           ? `❌ ${error.message}`
           : "❌ Ocurrió un error procesando la descarga.";
-      if (!(error instanceof YtDlpError)) {
+      if (!isAbort && !(error instanceof YtDlpError)) {
         console.error("[download] error inesperado:", error);
       }
       await safeEdit(ctx, chatId, statusMsgId, message);
     } finally {
+      activeJobs.delete(jobId);
       await tempFiles.cleanup(jobDir);
     }
   };
@@ -289,12 +339,17 @@ async function enqueue(ctx: Context, url: string, choice: Choice): Promise<void>
   const chatId = ctx.chat?.id;
   if (chatId === undefined) return;
 
+  const jobId = randomUUID();
+  const controller = new AbortController();
+  activeJobs.set(jobId, controller);
+
   const position = queue.pending;
   const status = await ctx.reply(
     position > 0 ? `⏳ En cola (posición ${position + 1})…` : "⏳ En cola…",
+    { reply_markup: cancelKeyboard(jobId) },
   );
 
-  queue.add(runJob(ctx, chatId, status.message_id, url, choice));
+  queue.add(runJob(ctx, chatId, status.message_id, url, choice, jobId, controller));
 }
 
 /** Maneja un comando-atajo (`/audio_only`, `/sd`, `/file`) con perfil fijo. */
@@ -358,7 +413,32 @@ export function registerDownloadHandler(bot: Bot): void {
   });
 
   bot.on("callback_query:data", async (ctx) => {
-    const parsed = /^dl:([^:]+):(.+)$/.exec(ctx.callbackQuery.data);
+    const data = ctx.callbackQuery.data;
+
+    if (data.startsWith("cancel:")) {
+      const jobId = data.slice("cancel:".length);
+      const controller = activeJobs.get(jobId);
+      if (!controller) {
+        await ctx.answerCallbackQuery({ text: "Ya terminó, nada que cancelar." });
+        return;
+      }
+      controller.abort();
+      await ctx.answerCallbackQuery({ text: "Cancelando…" });
+
+      const chatId = ctx.chat?.id;
+      const msgId = ctx.callbackQuery.message?.message_id;
+      if (chatId === undefined || msgId === undefined) return;
+      try {
+        await ctx.api.editMessageText(chatId, msgId, "❌ Cancelado.", {
+          reply_markup: { inline_keyboard: [] },
+        });
+      } catch {
+        /* no-op */
+      }
+      return;
+    }
+
+    const parsed = /^dl:([^:]+):(.+)$/.exec(data);
     if (!parsed) {
       await ctx.answerCallbackQuery();
       return;
@@ -377,22 +457,28 @@ export function registerDownloadHandler(bot: Bot): void {
     pending.delete(token!);
     await ctx.answerCallbackQuery({ text: choice.label });
 
-    // Reutiliza el propio mensaje del menú como mensaje de estado y quita los
-    // botones (inline_keyboard vacío) para que no queden opciones obsoletas.
     const chatId = ctx.chat?.id;
     const msgId = ctx.callbackQuery.message?.message_id;
     if (chatId === undefined || msgId === undefined) return;
 
+    const jobId = randomUUID();
+    const controller = new AbortController();
+    activeJobs.set(jobId, controller);
+
+    // Reutiliza el propio mensaje del menú como mensaje de estado y cambia los
+    // botones de calidad por el de Cancelar.
     try {
       await ctx.api.editMessageText(
         chatId,
         msgId,
         `⏳ En cola (${choice.label})…`,
-        { reply_markup: { inline_keyboard: [] } },
+        { reply_markup: cancelKeyboard(jobId) },
       );
     } catch {
       /* no-op */
     }
-    queue.add(runJob(ctx, chatId, msgId, entry.url, choice, entry.metadata));
+    queue.add(
+      runJob(ctx, chatId, msgId, entry.url, choice, jobId, controller, entry.metadata),
+    );
   });
 }

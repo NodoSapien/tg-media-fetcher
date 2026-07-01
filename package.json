@@ -11,7 +11,16 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bot:start": "pnpm build && pm2 start ecosystem.config.cjs",
+    "bot:stop": "pm2 stop tg-media-fetcher",
+    "bot:restart": "pnpm build && pm2 restart tg-media-fetcher",
+    "bot:status": "pm2 status tg-media-fetcher",
+    "bot:logs": "pm2 logs tg-media-fetcher",
+    "server:up": "docker compose up -d",
+    "server:down": "docker compose down",
+    "up": "pnpm server:up && pnpm bot:start",
+    "down": "pnpm bot:stop && pnpm server:down"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
@@ -20,6 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "pm2": "^7.0.3",
     "tsx": "^4.19.0",
     "typescript": "^5.5.4"
   }

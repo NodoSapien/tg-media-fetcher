@@ -19,6 +19,15 @@ async function main(): Promise<void> {
   process.once("SIGINT", () => void stop("SIGINT"));
   process.once("SIGTERM", () => void stop("SIGTERM"));
 
+  // Registra el menú "/" nativo de Telegram con la lista de comandos.
+  await bot.api.setMyCommands([
+    { command: "start", description: "Bienvenida y lista de comandos" },
+    { command: "help", description: "Bienvenida y lista de comandos" },
+    { command: "audio_only", description: "Descargar solo el audio (MP3)" },
+    { command: "sd", description: "Video en calidad reducida (480p)" },
+    { command: "file", description: "Archivo original sin compresión" },
+  ]);
+
   console.log("[main] Iniciando bot (long polling)…");
   await bot.start({
     onStart: (info) => console.log(`[main] Bot @${info.username} en línea.`),

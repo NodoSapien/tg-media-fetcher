@@ -129,7 +129,12 @@ pnpm build && pnpm start
 ```
 
 Envía una URL al bot desde la cuenta autorizada y responderá con el estado:
-`⏳ en cola → ⬇️ descargando → 📤 subiendo → ✅ listo`.
+`⏳ en cola → 🔎 analizando → ⬇️ descargando… %  → 📤 subiendo → ✅ listo`, con un
+botón **❌ Cancelar** mientras está en cola o descargando.
+
+**Encender/apagar sin abrir esta guía:** `pnpm run up` (Docker + PM2) y
+`pnpm run down`. Detalle en la caja de inicio rápido de la
+[Guía de usuario final](GUIA_USUARIO.md).
 
 **Comandos y calidad:**
 

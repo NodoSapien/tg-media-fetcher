@@ -46,6 +46,12 @@ export interface DownloadOptions {
   signal?: AbortSignal;
   /** Calidad/formato a descargar. Por defecto, la mejor disponible. */
   profile?: FormatProfile;
+  /**
+   * Notifica el % de avance de la descarga (0-100). En perfiles con video+audio
+   * separados, yt-dlp baja dos streams: el % puede "reiniciar" al pasar del
+   * primero al segundo.
+   */
+  onProgress?: (percent: number) => void;
 }
 
 export interface DownloadResult {
@@ -63,6 +69,33 @@ export interface MediaMetadata {
 }
 
 const PARTIAL_SUFFIXES = [".part", ".ytdl", ".temp", ".tmp"];
+
+// Línea literal impresa por nuestro --progress-template (ver `download()`).
+const PROGRESS_LINE = /^PROGRESS (\d+)\/(\d+|NA)$/;
+
+/** Acumula chunks de stdout por línea y reporta el % vía `onProgress`. */
+function watchProgress(
+  stdout: NodeJS.ReadableStream,
+  onProgress: (percent: number) => void,
+): void {
+  let buffer = "";
+  stdout.on("data", (chunk: Buffer) => {
+    buffer += chunk.toString();
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const match = PROGRESS_LINE.exec(line.trim());
+      if (!match) continue;
+      const [, downloaded, total] = match;
+      if (total === "NA") continue;
+      const percent = Math.min(
+        100,
+        Math.round((Number(downloaded) / Number(total)) * 100),
+      );
+      if (Number.isFinite(percent)) onProgress(percent);
+    }
+  });
+}
 
 function classifyStderr(stderr: string): YtDlpError | undefined {
   const lower = stderr.toLowerCase();
@@ -121,7 +154,7 @@ export function download(
   url: string,
   options: DownloadOptions,
 ): Promise<DownloadResult> {
-  const { outDir, signal, profile = "best" } = options;
+  const { outDir, signal, profile = "best", onProgress } = options;
 
   // Solo pasar --ffmpeg-location si FFMPEG_PATH es una ruta real. yt-dlp trata
   // ese parámetro como una ubicación del filesystem, no busca en el PATH; si le
@@ -135,7 +168,9 @@ export function download(
   const args = [
     ...formatArgs(profile),
     "--no-playlist",
-    "--no-progress",
+    "--newline",
+    "--progress-template",
+    "download:PROGRESS %(progress.downloaded_bytes)s/%(progress.total_bytes_estimate)s",
     ...(ffmpegIsPath ? ["--ffmpeg-location", env.FFMPEG_PATH] : []),
     "-o",
     path.join(outDir, "%(id)s.%(ext)s"),
@@ -152,6 +187,10 @@ export function download(
         stderr += chunk.toString();
       }
     });
+    // Siempre se drena stdout (aunque no haya onProgress): con --newline y
+    // --progress-template yt-dlp escribe ahí, y dejarlo sin consumir puede
+    // llenar el pipe y trabar el proceso en descargas largas.
+    watchProgress(child.stdout, onProgress ?? (() => {}));
 
     child.on("error", (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {

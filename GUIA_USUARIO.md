@@ -5,6 +5,24 @@ descargando tu primer video.
 
 ---
 
+## ⚡ Encender / apagar (resumen rápido)
+
+Ya configuraste todo una vez y solo quieres prender o apagar el bot sin releer la
+guía completa:
+
+```bash
+pnpm run up            # enciende el servidor de Telegram (Docker) + el bot (PM2)
+pnpm run bot:status     # ¿sigue vivo?
+pnpm run bot:logs       # ver qué está haciendo
+pnpm run down           # apaga el bot (limpio) + el servidor
+```
+
+Esto requiere haber hecho el setup una sola vez (pasos 1-4 de esta guía). El
+detalle de cómo funciona está en el [paso 5](#5-arranca-el-bot) y el
+[paso 7](#7-detener-el-bot).
+
+---
+
 ## 1. Prerequisitos
 
 Instala esto **antes** de tocar el proyecto:
@@ -105,20 +123,38 @@ Debe mostrar el contenedor `telegram-bot-api` como `running`/`healthy`.
 
 ## 5. Arranca el bot
 
-**Modo desarrollo** (recarga automática al editar código):
+**Recomendado — dejarlo corriendo en segundo plano (PM2):**
+
+```bash
+pnpm run up
+```
+
+Esto levanta el servidor local de Telegram (Docker, si no estaba arriba) y arranca
+el bot con [PM2](https://pm2.keymetrics.io/), un gestor de procesos que lo deja
+corriendo en background (no necesitas dejar una terminal abierta) y respeta el
+apagado limpio del bot al detenerlo. Comandos útiles:
+
+```bash
+pnpm run bot:status    # ver si está online
+pnpm run bot:logs      # ver los logs en vivo
+pnpm run bot:restart   # reconstruir y reiniciar tras editar código
+```
+
+**Modo desarrollo** (recarga automática al editar código, en primer plano):
 
 ```bash
 pnpm dev
 ```
 
-**Modo producción** (compilado, para dejarlo corriendo):
+**Modo producción manual** (compilado, en primer plano — alternativa a `pnpm run up`):
 
 ```bash
 pnpm build
 pnpm start
 ```
 
-Si todo está bien configurado vas a ver en la terminal:
+Si todo está bien configurado vas a ver (en la terminal, o en `pnpm run bot:logs`
+si usaste PM2):
 
 ```
 [main] Iniciando bot (long polling)…
@@ -136,10 +172,14 @@ Si todo está bien configurado vas a ver en la terminal:
 
    ```
    ⏳ En cola…
-   ⬇️ Descargando…
+   🔎 Analizando…
+   ⬇️ Descargando… 42%
    📤 Subiendo…
    ✅ Listo
    ```
+
+   Mientras está en cola o descargando, el mensaje tiene un botón **❌ Cancelar**
+   por si te arrepientes.
 
 5. Recibirás el archivo directamente en el chat.
 
@@ -167,8 +207,18 @@ Si todo está bien configurado vas a ver en la terminal:
 
 ## 7. Detener el bot
 
-- Terminal donde corre `pnpm dev` / `pnpm start`: `Ctrl+C` (apaga limpio,
-  espera a que termine el job en curso si lo hay).
+**Recomendado** (si lo arrancaste con `pnpm run up`):
+
+```bash
+pnpm run down
+```
+
+Apaga el bot vía PM2 (espera a que termine el job en curso, igual que `Ctrl+C`) y
+después baja el servidor local de Telegram.
+
+**Modo desarrollo/manual** (si corre en una terminal con `pnpm dev` / `pnpm start`):
+
+- `Ctrl+C` en esa terminal (apaga limpio, espera a que termine el job en curso).
 - Servidor local de Telegram: `docker compose down` (los archivos temporales
   del bot ya se autolimpian en cada descarga, no se pierde nada).
 
