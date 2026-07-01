@@ -68,6 +68,7 @@ TELEGRAM_API_BASE_URL=http://127.0.0.1:8081
 DOWNLOAD_TMP_DIR=
 YTDLP_PATH=yt-dlp
 FFMPEG_PATH=ffmpeg
+QUALITY_MENU=false
 ```
 
 > `DOWNLOAD_TMP_DIR` puede dejarse vacío: el bot usa automáticamente una
@@ -76,6 +77,10 @@ FFMPEG_PATH=ffmpeg
 >
 > `YTDLP_PATH` / `FFMPEG_PATH` solo necesitan ruta completa si esos
 > ejecutables **no** están en tu `PATH`.
+>
+> `QUALITY_MENU` puede quedar en `false`: pegar una URL baja directo la mejor
+> calidad. Ponlo en `true` si prefieres que el bot te pregunte la calidad con
+> botones antes de descargar.
 
 ---
 
@@ -125,7 +130,7 @@ Si todo está bien configurado vas a ver en la terminal:
 ## 6. Úsalo
 
 1. Abre Telegram y busca tu bot por el username que le diste en BotFather.
-2. Envía `/start` — debe responder con un saludo.
+2. Envía `/start` — te responde con la bienvenida y la lista de comandos.
 3. Envía cualquier URL de video (YouTube, Twitter/X, Instagram, etc.).
 4. El bot va a editar un mismo mensaje mostrando el progreso:
 
@@ -137,6 +142,19 @@ Si todo está bien configurado vas a ver en la terminal:
    ```
 
 5. Recibirás el archivo directamente en el chat.
+
+**Comandos disponibles** (funcionan siempre, aunque el menú esté desactivado):
+
+| Comando | Qué hace |
+|---|---|
+| `/audio_only <URL>` | Descarga **solo el audio** en MP3 |
+| `/sd <URL>` | Video en **calidad reducida** (480p, pesa menos) |
+| `/file <URL>` | Archivo **original sin compresión** (llega como documento, no como video reproducible) |
+| `/start`, `/help` | Muestra la bienvenida y los comandos |
+
+> 🎚️ Si pusiste `QUALITY_MENU=true` en tu `.env`, al pegar una URL el bot te
+> muestra botones (**Best / 1080p / 720p / 480p / 🎵 Audio / 📁 Original**) para
+> que elijas la calidad antes de descargar.
 
 > 🔒 Si escribes desde **otra** cuenta de Telegram (no la del `ALLOWED_USER_ID`),
 > el bot no responde nada — es el comportamiento esperado por diseño.

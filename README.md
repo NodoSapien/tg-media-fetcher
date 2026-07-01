@@ -89,6 +89,8 @@ tg-media-fetcher/
 
 Copiar `.env.example` a `.env` y completar. Ver el archivo para la lista completa.
 `DOWNLOAD_TMP_DIR` es opcional: si se omite, se usa `<os.tmpdir()>/tg-media-fetcher`.
+`QUALITY_MENU` es opcional (`false` por defecto): si es `true`, al pegar una URL el bot
+muestra un menú inline para elegir calidad antes de descargar.
 
 ### (Opcional, solo Linux) tmpfs / RAM disk
 
@@ -128,6 +130,20 @@ pnpm build && pnpm start
 
 Envía una URL al bot desde la cuenta autorizada y responderá con el estado:
 `⏳ en cola → ⬇️ descargando → 📤 subiendo → ✅ listo`.
+
+**Comandos y calidad:**
+
+| Entrada | Resultado |
+|---|---|
+| Pegar una URL | Mejor calidad de video (o abre el menú si `QUALITY_MENU=true`) |
+| `/audio_only <URL>` | Solo audio (MP3) |
+| `/sd <URL>` | Video en calidad reducida (480p) |
+| `/file <URL>` | Archivo **original sin compresión** (se envía como documento) |
+| `/start`, `/help` | Onboarding con la lista de comandos |
+
+Con `QUALITY_MENU=true`, pegar una URL muestra botones inline
+(**Best / 1080p / 720p / 480p / 🎵 Audio / 📁 Original**) para elegir antes de descargar.
+Los comandos van siempre directos, esté el menú activo o no.
 
 > Para el paso a paso completo (conseguir credenciales, troubleshooting, etc.) ver la
 > [Guía de usuario final](GUIA_USUARIO.md).
