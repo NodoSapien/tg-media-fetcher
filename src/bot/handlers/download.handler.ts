@@ -56,6 +56,8 @@ function buildStartText(): string {
     "• /sd <URL> — video en calidad reducida (480p, pesa menos).",
     "• /file <URL> — archivo original sin compresión (se envía como documento).",
     "• /help — muestra esta ayuda.",
+    "",
+    "📝 Cada archivo llega con su título (enlazado a la URL), duración y plataforma.",
   ];
   if (env.QUALITY_MENU) {
     lines.push(
@@ -73,19 +75,24 @@ function extractUrl(text: string): string | undefined {
 }
 
 // El callback_data de Telegram tiene un tope de 64 bytes: no cabe una URL. Se
-// guarda la URL en memoria y el botón lleva solo un token corto que la referencia.
-const pendingUrls = new Map<string, string>();
+// guarda la URL (y la metadata ya sondeada) en memoria y el botón lleva solo un
+// token corto que la referencia.
+interface Pending {
+  url: string;
+  metadata?: ytdlp.MediaMetadata;
+}
+const pending = new Map<string, Pending>();
 const MAX_PENDING = 50;
 
-function storeUrl(url: string): string {
+function storePending(url: string, metadata?: ytdlp.MediaMetadata): string {
   const token = randomUUID().slice(0, 8);
   // Cap simple para no crecer sin límite: descarta la entrada más antigua
   // (Map conserva el orden de inserción).
-  if (pendingUrls.size >= MAX_PENDING) {
-    const oldest = pendingUrls.keys().next().value;
-    if (oldest !== undefined) pendingUrls.delete(oldest);
+  if (pending.size >= MAX_PENDING) {
+    const oldest = pending.keys().next().value;
+    if (oldest !== undefined) pending.delete(oldest);
   }
-  pendingUrls.set(token, url);
+  pending.set(token, { url, metadata });
   return token;
 }
 
@@ -96,6 +103,59 @@ function buildMenu(token: string): InlineKeyboard {
     if ((index + 1) % 3 === 0) kb.row();
   });
   return kb;
+}
+
+/** Sondea metadata sin bloquear el flujo: si falla, devuelve undefined. */
+async function safeProbe(url: string): Promise<ytdlp.MediaMetadata | undefined> {
+  return ytdlp.probe(url).catch(() => undefined);
+}
+
+function htmlEscape(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Segundos → `H:MM:SS` (o `M:SS` si dura menos de una hora). */
+function formatDuration(sec: number): string {
+  const total = Math.max(0, Math.round(sec));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const ss = String(s).padStart(2, "0");
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${ss}`;
+  return `${m}:${ss}`;
+}
+
+/** Línea secundaria "⏱ duración · 📺 plataforma" (omite lo que falte). */
+function metaLine(metadata?: ytdlp.MediaMetadata): string | undefined {
+  if (!metadata) return undefined;
+  const parts: string[] = [];
+  if (typeof metadata.durationSec === "number") {
+    parts.push(`⏱ ${formatDuration(metadata.durationSec)}`);
+  }
+  if (metadata.platform) parts.push(`📺 ${htmlEscape(metadata.platform)}`);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+/** Caption HTML: título enlazado a la URL, más duración/plataforma. */
+function buildCaption(
+  metadata: ytdlp.MediaMetadata | undefined,
+  fallbackUrl: string,
+): string {
+  const url = metadata?.webpageUrl ?? fallbackUrl;
+  const title = metadata?.title ?? url;
+  const link = `<a href="${htmlEscape(url)}">${htmlEscape(title)}</a>`;
+  const line = metaLine(metadata);
+  return line ? `${link}\n${line}` : link;
+}
+
+/** Encabezado HTML del menú: título/duración/plataforma + "Elige la calidad:". */
+function buildMenuHeader(metadata?: ytdlp.MediaMetadata): string {
+  const lines: string[] = [];
+  if (metadata?.title) lines.push(`<b>${htmlEscape(metadata.title)}</b>`);
+  const line = metaLine(metadata);
+  if (line) lines.push(line);
+  lines.push("Elige la calidad:");
+  return lines.join("\n");
 }
 
 /** Edita el mensaje de estado ignorando errores (p. ej. mensaje sin cambios). */
@@ -112,30 +172,52 @@ async function safeEdit(
   }
 }
 
+/** Edita un mensaje con parse_mode HTML y un teclado inline (ignora errores). */
+async function safeEditHtml(
+  ctx: Context,
+  chatId: number,
+  messageId: number,
+  text: string,
+  keyboard: InlineKeyboard,
+): Promise<void> {
+  try {
+    await ctx.api.editMessageText(chatId, messageId, text, {
+      parse_mode: "HTML",
+      reply_markup: keyboard,
+      link_preview_options: { is_disabled: true },
+    });
+  } catch {
+    /* no-op */
+  }
+}
+
 async function sendByType(
   ctx: Context,
   chatId: number,
   filePath: string,
-  opts: { asDocument?: boolean } = {},
+  opts: { asDocument?: boolean; caption?: string } = {},
 ): Promise<void> {
   const file = new InputFile(filePath);
+  const extra = opts.caption
+    ? { caption: opts.caption, parse_mode: "HTML" as const }
+    : {};
 
   // Entrega "sin compresión": el archivo original tal cual, sin que Telegram
   // lo re-codifique a un video reproducible.
   if (opts.asDocument) {
-    await ctx.api.sendDocument(chatId, file);
+    await ctx.api.sendDocument(chatId, file, extra);
     return;
   }
 
   const ext = path.extname(filePath).toLowerCase();
   if (VIDEO_EXTS.has(ext)) {
-    await ctx.api.sendVideo(chatId, file, { supports_streaming: true });
+    await ctx.api.sendVideo(chatId, file, { supports_streaming: true, ...extra });
   } else if (AUDIO_EXTS.has(ext)) {
-    await ctx.api.sendAudio(chatId, file);
+    await ctx.api.sendAudio(chatId, file, extra);
   } else if (IMAGE_EXTS.has(ext)) {
-    await ctx.api.sendPhoto(chatId, file);
+    await ctx.api.sendPhoto(chatId, file, extra);
   } else {
-    await ctx.api.sendDocument(chatId, file);
+    await ctx.api.sendDocument(chatId, file, extra);
   }
 }
 
@@ -145,10 +227,19 @@ function runJob(
   statusMsgId: number,
   url: string,
   choice: Choice,
+  metadata?: ytdlp.MediaMetadata,
 ) {
   return async (): Promise<void> => {
     const jobDir = await tempFiles.createJobDir();
     try {
+      // Si no llega metadata (camino sin menú), la sondeamos ahora (best-effort)
+      // para no bloquear el encolado.
+      let meta = metadata;
+      if (meta === undefined) {
+        await safeEdit(ctx, chatId, statusMsgId, "🔎 Analizando…");
+        meta = await safeProbe(url);
+      }
+
       await safeEdit(ctx, chatId, statusMsgId, "⬇️ Descargando…");
       const { filePath } = await ytdlp.download(url, {
         outDir: jobDir,
@@ -172,7 +263,10 @@ function runJob(
         statusMsgId,
         choice.asDocument ? "📤 Subiendo (original)…" : "📤 Subiendo…",
       );
-      await sendByType(ctx, chatId, filePath, { asDocument: choice.asDocument });
+      await sendByType(ctx, chatId, filePath, {
+        asDocument: choice.asDocument,
+        caption: buildCaption(meta, url),
+      });
 
       await safeEdit(ctx, chatId, statusMsgId, "✅ Listo");
     } catch (error) {
@@ -243,11 +337,20 @@ export function registerDownloadHandler(bot: Bot): void {
       return;
     }
 
-    // Menú opcional ("mensaje extra"): si está activo, preguntamos la calidad
-    // antes de descargar; si no, bajamos la mejor calidad directamente.
+    // Menú opcional ("mensaje extra"): si está activo, sondeamos la metadata,
+    // la mostramos y preguntamos la calidad antes de descargar; si no, bajamos
+    // la mejor calidad directamente.
     if (env.QUALITY_MENU) {
-      const token = storeUrl(url);
-      await ctx.reply("Elige la calidad:", { reply_markup: buildMenu(token) });
+      const analyzing = await ctx.reply("🔎 Analizando enlace…");
+      const metadata = await safeProbe(url);
+      const token = storePending(url, metadata);
+      await safeEditHtml(
+        ctx,
+        ctx.chat.id,
+        analyzing.message_id,
+        buildMenuHeader(metadata),
+        buildMenu(token),
+      );
       return;
     }
 
@@ -262,16 +365,16 @@ export function registerDownloadHandler(bot: Bot): void {
     }
     const [, choiceKey, token] = parsed;
     const choice = MENU_CHOICES[choiceKey!];
-    const url = pendingUrls.get(token!);
+    const entry = pending.get(token!);
 
-    if (!choice || !url) {
+    if (!choice || !entry) {
       await ctx.answerCallbackQuery({
         text: "Esa selección expiró, reenvía la URL.",
       });
       return;
     }
 
-    pendingUrls.delete(token!);
+    pending.delete(token!);
     await ctx.answerCallbackQuery({ text: choice.label });
 
     // Reutiliza el propio mensaje del menú como mensaje de estado y quita los
@@ -290,6 +393,6 @@ export function registerDownloadHandler(bot: Bot): void {
     } catch {
       /* no-op */
     }
-    queue.add(runJob(ctx, chatId, msgId, url, choice));
+    queue.add(runJob(ctx, chatId, msgId, entry.url, choice, entry.metadata));
   });
 }
