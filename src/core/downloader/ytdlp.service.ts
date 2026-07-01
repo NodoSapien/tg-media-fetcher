@@ -36,11 +36,16 @@ export class UnsupportedUrlError extends YtDlpError {
   }
 }
 
+/** Perfil de calidad/formato solicitado. Determina los args `-f` de yt-dlp. */
+export type FormatProfile = "best" | "1080p" | "720p" | "480p" | "audio";
+
 export interface DownloadOptions {
   /** Directorio (único, idealmente vacío) donde se escribe la descarga. */
   outDir: string;
   /** Permite abortar la descarga (mata el proceso de yt-dlp). */
   signal?: AbortSignal;
+  /** Calidad/formato a descargar. Por defecto, la mejor disponible. */
+  profile?: FormatProfile;
 }
 
 export interface DownloadResult {
@@ -78,15 +83,35 @@ async function findDownloadedFile(outDir: string): Promise<string | undefined> {
   return path.join(outDir, first);
 }
 
+/** Traduce un perfil a los args de selección/salida de yt-dlp. */
+function formatArgs(profile: FormatProfile): string[] {
+  if (profile === "audio") {
+    // Extrae solo la pista de audio y la transcodifica a MP3 (vía ffmpeg).
+    // Sin --merge-output-format: la salida es .mp3, no un contenedor mp4.
+    return ["-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", "0"];
+  }
+  const heightCap: Record<"1080p" | "720p" | "480p", number> = {
+    "1080p": 1080,
+    "720p": 720,
+    "480p": 480,
+  };
+  const selector =
+    profile === "best"
+      ? "bv*+ba/b"
+      : `bv*[height<=${heightCap[profile]}]+ba/b[height<=${heightCap[profile]}]`;
+  return ["-f", selector, "--merge-output-format", "mp4"];
+}
+
 /**
- * Descarga la mejor calidad disponible de `url` dentro de `outDir`.
- * yt-dlp invoca ffmpeg automáticamente para mergear audio/video separados.
+ * Descarga `url` dentro de `outDir` según el perfil pedido (por defecto, la
+ * mejor calidad). yt-dlp invoca ffmpeg automáticamente para mergear audio/video
+ * separados o para extraer el audio.
  */
 export function download(
   url: string,
   options: DownloadOptions,
 ): Promise<DownloadResult> {
-  const { outDir, signal } = options;
+  const { outDir, signal, profile = "best" } = options;
 
   // Solo pasar --ffmpeg-location si FFMPEG_PATH es una ruta real. yt-dlp trata
   // ese parámetro como una ubicación del filesystem, no busca en el PATH; si le
@@ -98,10 +123,7 @@ export function download(
     env.FFMPEG_PATH.includes("\\");
 
   const args = [
-    "-f",
-    "bv*+ba/b",
-    "--merge-output-format",
-    "mp4",
+    ...formatArgs(profile),
     "--no-playlist",
     "--no-progress",
     ...(ffmpegIsPath ? ["--ffmpeg-location", env.FFMPEG_PATH] : []),
