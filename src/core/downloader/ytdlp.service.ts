@@ -52,6 +52,16 @@ export interface DownloadResult {
   filePath: string;
 }
 
+/** Metadata liviana de un recurso, obtenida sin descargarlo (`probe`). */
+export interface MediaMetadata {
+  title?: string;
+  /** URL canónica del recurso (mejor que la pegada para incrustar). */
+  webpageUrl?: string;
+  durationSec?: number;
+  /** Plataforma/extractor (p. ej. "Youtube", "Twitter"). */
+  platform?: string;
+}
+
 const PARTIAL_SUFFIXES = [".part", ".ytdl", ".temp", ".tmp"];
 
 function classifyStderr(stderr: string): YtDlpError | undefined {
@@ -189,6 +199,73 @@ export function download(
               : new YtDlpError(String(error)),
           ),
         );
+    });
+  });
+}
+
+/**
+ * Obtiene metadata de `url` sin descargar el media (`yt-dlp -J`). Pensada para
+ * enriquecer el mensaje/caption; el llamador la trata como best-effort.
+ */
+export function probe(
+  url: string,
+  opts: { signal?: AbortSignal } = {},
+): Promise<MediaMetadata> {
+  const args = ["-J", "--no-playlist", "--no-warnings", url];
+
+  return new Promise<MediaMetadata>((resolve, reject) => {
+    const child = spawn(env.YTDLP_PATH, args, { signal: opts.signal });
+
+    let stdout = "";
+    let stderr = "";
+    const STDOUT_CAP = 1_048_576; // el JSON completo puede pesar; tope defensivo
+    const STDERR_CAP = 16_384;
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (stdout.length < STDOUT_CAP) stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderr.length < STDERR_CAP) stderr += chunk.toString();
+    });
+
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        reject(new YtDlpNotFoundError());
+      } else if (error.name === "AbortError") {
+        reject(error);
+      } else {
+        reject(new YtDlpError(error.message));
+      }
+    });
+
+    child.on("close", (code) => {
+      if (opts.signal?.aborted) {
+        reject(new YtDlpError("Sondeo cancelado."));
+        return;
+      }
+      if (code !== 0) {
+        reject(classifyStderr(stderr) ?? new YtDlpError(`yt-dlp -J salió con código ${code}.`));
+        return;
+      }
+      try {
+        const info = JSON.parse(stdout) as Record<string, unknown>;
+        resolve({
+          title: typeof info.title === "string" ? info.title : undefined,
+          webpageUrl:
+            typeof info.webpage_url === "string" ? info.webpage_url : undefined,
+          durationSec:
+            typeof info.duration === "number" ? info.duration : undefined,
+          platform:
+            (typeof info.extractor_key === "string" && info.extractor_key) ||
+            (typeof info.extractor === "string" && info.extractor) ||
+            undefined,
+        });
+      } catch (error) {
+        reject(
+          new YtDlpError(
+            `No se pudo parsear la metadata: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+      }
     });
   });
 }
