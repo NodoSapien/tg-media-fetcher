@@ -156,6 +156,10 @@ Si todo está bien configurado vas a ver en la terminal:
 > muestra botones (**Best / 1080p / 720p / 480p / 🎵 Audio / 📁 Original**) para
 > que elijas la calidad antes de descargar.
 
+> 📝 Cada archivo llega con un pie de foto (caption) que incluye el **título del
+> video enlazado a su URL**, la **duración** y la **plataforma**. Con el menú
+> activo esos datos también se muestran al momento de elegir la calidad.
+
 > 🔒 Si escribes desde **otra** cuenta de Telegram (no la del `ALLOWED_USER_ID`),
 > el bot no responde nada — es el comportamiento esperado por diseño.
 

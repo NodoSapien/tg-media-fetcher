@@ -145,6 +145,10 @@ Con `QUALITY_MENU=true`, pegar una URL muestra botones inline
 (**Best / 1080p / 720p / 480p / 🎵 Audio / 📁 Original**) para elegir antes de descargar.
 Los comandos van siempre directos, esté el menú activo o no.
 
+**Metadata:** cada archivo se envía con un caption que lleva el **título enlazado a la URL
+original**, la **duración** y la **plataforma** (obtenidos con `yt-dlp -J`). Si el menú está
+activo, ese mismo dato (título, duración, plataforma) se muestra al elegir la calidad.
+
 > Para el paso a paso completo (conseguir credenciales, troubleshooting, etc.) ver la
 > [Guía de usuario final](GUIA_USUARIO.md).
 
