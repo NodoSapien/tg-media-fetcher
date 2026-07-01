@@ -19,6 +19,13 @@ const envSchema = z.object({
     .transform((value) => value ?? defaultTmpDir),
   YTDLP_PATH: z.string().min(1).default("yt-dlp"),
   FFMPEG_PATH: z.string().min(1).default("ffmpeg"),
+  // Si es true, al pegar una URL el bot muestra un menú inline para elegir
+  // calidad antes de descargar (el "mensaje extra"). Off por defecto: el
+  // comportamiento sigue siendo descargar la mejor calidad sin preguntar.
+  QUALITY_MENU: z
+    .enum(["true", "false", "1", "0"])
+    .default("false")
+    .transform((value) => value === "true" || value === "1"),
 });
 
 // Trata variables vacías ("FOO=") como ausentes: así los campos opcionales o
